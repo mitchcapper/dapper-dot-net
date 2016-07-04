@@ -30,14 +30,10 @@ namespace Dapper.Contrib.Extensions
             string sql;
             if (!GetQueries.TryGetValue(type.TypeHandle, out sql))
             {
-                var key = GetSingleKey<T>(nameof(GetAsync));
-                var name = GetTableName(type);
-                var colsList = ColumnListForSelect(connection, type);
+				var key = GetSingleKey<T>(nameof(GetAsync));
+				var keyColumn = ColumnNamesCache(type, key.Name);
 
-                var keyColumn = ColumnNamesCache(type, key.Name);
-
-                sql = $"SELECT {colsList} FROM {name} WHERE {keyColumn} = @id";
-
+                 sql = connection.GetSelectSql<T>() + $" WHERE {keyColumn} = @id";
                 
                 GetQueries[type.TypeHandle] = sql;
             }
@@ -82,26 +78,7 @@ namespace Dapper.Contrib.Extensions
             var type = typeof(T);
             var cacheType = typeof(List<T>);
 
-            string sql;
-            if (!GetQueries.TryGetValue(cacheType.TypeHandle, out sql))
-            {
-                GetSingleKey<T>(nameof(GetAll));
-                var name = GetTableName(type);
-
-                ISqlAdapter adapter = GetFormatter(connection);
-                var props = TypePropertiesCache(type);
-                var colsList = new StringBuilder();
-                foreach (var prop in props)
-                {
-                    if (colsList.Length > 0) colsList.Append(", ");
-                    adapter.AppendColumnName(colsList, ColumnNamesCache(type, prop.Name));
-                    colsList.Append(" as ");
-                    adapter.AppendColumnName(colsList, prop.Name);
-                }
-
-                sql = "SELECT " + colsList.ToString() + " FROM " + name;
-                GetQueries[cacheType.TypeHandle] = sql;
-            }
+            string sql = connection.GetSelectSql<T>();
 
             if (!type.IsInterface())
             {

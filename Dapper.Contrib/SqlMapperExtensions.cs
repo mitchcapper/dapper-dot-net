@@ -38,7 +38,7 @@ namespace Dapper.Contrib.Extensions
         private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> TypeProperties = new ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>>();
         private static readonly ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>> ComputedProperties = new ConcurrentDictionary<RuntimeTypeHandle, IEnumerable<PropertyInfo>>();
         private static readonly ConcurrentDictionary<RuntimeTypeHandle, string> GetQueries = new ConcurrentDictionary<RuntimeTypeHandle, string>();
-        private static readonly ConcurrentDictionary<RuntimeTypeHandle, string> TypeTableName = new ConcurrentDictionary<RuntimeTypeHandle, string>();
+		private static readonly ConcurrentDictionary<RuntimeTypeHandle, string> TypeTableName = new ConcurrentDictionary<RuntimeTypeHandle, string>();
         private static readonly ConcurrentDictionary<RuntimeTypeHandle, ConcurrentDictionary<string, string>> ColumnNames = new ConcurrentDictionary<RuntimeTypeHandle, ConcurrentDictionary<string, string>>();
 
         private static readonly ISqlAdapter DefaultAdapter = new SqlServerAdapter();
@@ -154,8 +154,8 @@ namespace Dapper.Contrib.Extensions
             var writeAttribute = (WriteAttribute)attributes[0];
             return writeAttribute.Write;
         }
-
-        private static string ColumnListForSelect(IDbConnection connection, Type type)
+		
+		private static string ColumnListForSelect(IDbConnection connection, Type type)
         {
             ISqlAdapter adapter = GetFormatter(connection);
 
@@ -209,11 +209,9 @@ namespace Dapper.Contrib.Extensions
             if (!GetQueries.TryGetValue(type.TypeHandle, out sql))
             {
                 var key = GetSingleKey<T>(nameof(Get));
-                var name = GetTableName(type);
-                var colsList = ColumnListForSelect(connection, type);
                 var keyColumn = ColumnNamesCache(type, key.Name);
 
-                sql = $"select {colsList} from {name} where {keyColumn} = @id";
+                sql = connection.GetSelectSql<T>() + $" where {keyColumn} = @id";
                 GetQueries[type.TypeHandle] = sql;
             }
 
@@ -246,44 +244,42 @@ namespace Dapper.Contrib.Extensions
             return obj;
         }
 
-        /// <summary>
-        /// Returns a list of entites from table "Ts".  
-        /// Id of T must be marked with [Key] attribute.
-        /// Entities created from interfaces are tracked/intercepted for changes and used by the Update() extension
-        /// for optimal performance. 
-        /// </summary>
-        /// <typeparam name="T">Interface or type to create and populate</typeparam>
-        /// <param name="connection">Open SqlConnection</param>
-        /// <param name="transaction">The transaction to run under, null (the default) if none</param>
-        /// <param name="commandTimeout">Number of seconds before command execution timeout</param>
-        /// <returns>Entity of T</returns>
-        public static IEnumerable<T> GetAll<T>(this IDbConnection connection, IDbTransaction transaction = null, int? commandTimeout = null) where T : class
+	    public static string GetTableName<T>(this IDbConnection connection) {
+			var type = typeof(T);
+		    return GetTableName(type);
+	    }
+
+	    public static string GetSelectSql<T>(this IDbConnection connection) where T : class {
+			var type = typeof(T);
+			var cacheType = typeof(List<T>);
+		    string sql;
+		    if (!GetQueries.TryGetValue(cacheType.TypeHandle, out sql)) {
+				var name = GetTableName(type);
+				var colsList = ColumnListForSelect(connection, type);
+				sql = $"SELECT {colsList} FROM {name}";
+				GetQueries[cacheType.TypeHandle] = sql;
+			}
+		    return sql;
+	    }
+
+	    /// <summary>
+		/// Returns a list of entites from table "Ts".  
+		/// Id of T must be marked with [Key] attribute.
+		/// Entities created from interfaces are tracked/intercepted for changes and used by the Update() extension
+		/// for optimal performance. 
+		/// </summary>
+		/// <typeparam name="T">Interface or type to create and populate</typeparam>
+		/// <param name="connection">Open SqlConnection</param>
+		/// <param name="transaction">The transaction to run under, null (the default) if none</param>
+		/// <param name="commandTimeout">Number of seconds before command execution timeout</param>
+		/// <returns>Entity of T</returns>
+		public static IEnumerable<T> GetAll<T>(this IDbConnection connection, IDbTransaction transaction = null, int? commandTimeout = null) where T : class
         {
             var type = typeof(T);
             var cacheType = typeof(List<T>);
 
-            string sql;
-            if (!GetQueries.TryGetValue(cacheType.TypeHandle, out sql))
-            {
-                GetSingleKey<T>(nameof(GetAll));
-                var name = GetTableName(type);
-
-                ISqlAdapter adapter = GetFormatter(connection);
-                var props = TypePropertiesCache(type);
-                var colsList = new StringBuilder();
-                foreach (var prop in props)
-                {
-                    if (colsList.Length > 0) colsList.Append(", ");
-                    adapter.AppendColumnName(colsList, ColumnNamesCache(type, prop.Name));
-                    colsList.Append(" as ");
-                    adapter.AppendColumnName(colsList, prop.Name);
-                }
-                // TODO: query information schema and only select fields that are both in information schema and underlying class / interface 
-                sql = "select " + colsList.ToString() + " from " + name;
-                
-                GetQueries[cacheType.TypeHandle] = sql;
-            }
-
+            string sql = connection.GetSelectSql<T>();
+    
             if (!type.IsInterface()) return connection.Query<T>(sql, null, transaction, commandTimeout: commandTimeout);
 
             var result = connection.Query(sql);
@@ -306,7 +302,7 @@ namespace Dapper.Contrib.Extensions
         /// Specify a custom table name mapper based on the POCO type name
         /// </summary>
         public static TableNameMapperDelegate TableNameMapper;
-
+		
         private static string GetTableName(Type type)
         {
             string name;
