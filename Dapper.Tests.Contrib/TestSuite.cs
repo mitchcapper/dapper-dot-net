@@ -83,7 +83,9 @@ namespace Dapper.Tests.Contrib
     [Table("Results")]
     public class Result
     {
+        [Column("ResultId")]
         public int Id { get; set; }
+        [Column("ResultName")]
         public string Name { get; set; }
         public int Order { get; set; }
     }
@@ -255,6 +257,19 @@ namespace Dapper.Tests.Contrib
             }
         }
 
+        public void ColumnName()
+        {
+            using (var connection = GetOpenConnection())
+            {
+                // tests against "Name" column (set by Column attribute on Result.FullName )
+                connection.Insert(new Result { Name = "Mike" });
+                connection.Get<Result>(1).Name.IsEqualTo("Mike");
+                connection.Update(new Result() { Id = 1, Name = "Michael" }).IsEqualTo(true);
+                connection.Get<Result>(1).Name.IsEqualTo("Michael");
+                connection.Delete(new Result() { Id = 1 }).IsEqualTo(true);
+                connection.Get<Result>(1).IsNull();
+            }
+        }
         [Fact]
         public void TestSimpleGet()
         {

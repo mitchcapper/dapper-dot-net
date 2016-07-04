@@ -32,8 +32,13 @@ namespace Dapper.Contrib.Extensions
             {
                 var key = GetSingleKey<T>(nameof(GetAsync));
                 var name = GetTableName(type);
+                var colsList = ColumnListForSelect(connection, type);
 
-                sql = $"SELECT * FROM {name} WHERE {key.Name} = @id";
+                var keyColumn = ColumnNamesCache(type, key.Name);
+
+                sql = $"SELECT {colsList} FROM {name} WHERE {keyColumn} = @id";
+
+                
                 GetQueries[type.TypeHandle] = sql;
             }
 
@@ -83,7 +88,18 @@ namespace Dapper.Contrib.Extensions
                 GetSingleKey<T>(nameof(GetAll));
                 var name = GetTableName(type);
 
-                sql = "SELECT * FROM " + name;
+                ISqlAdapter adapter = GetFormatter(connection);
+                var props = TypePropertiesCache(type);
+                var colsList = new StringBuilder();
+                foreach (var prop in props)
+                {
+                    if (colsList.Length > 0) colsList.Append(", ");
+                    adapter.AppendColumnName(colsList, ColumnNamesCache(type, prop.Name));
+                    colsList.Append(" as ");
+                    adapter.AppendColumnName(colsList, prop.Name);
+                }
+
+                sql = "SELECT " + colsList.ToString() + " FROM " + name;
                 GetQueries[cacheType.TypeHandle] = sql;
             }
 
@@ -147,10 +163,13 @@ namespace Dapper.Contrib.Extensions
             var computedProperties = ComputedPropertiesCache(type);
             var allPropertiesExceptKeyAndComputed = allProperties.Except(keyProperties.Union(computedProperties)).ToList();
 
+            var adapter = GetFormatter(connection);
+
             for (var i = 0; i < allPropertiesExceptKeyAndComputed.Count; i++)
             {
                 var property = allPropertiesExceptKeyAndComputed.ElementAt(i);
-                sqlAdapter.AppendColumnName(sbColumnList, property.Name);
+                var column = ColumnNamesCache(type, property.Name);
+                sqlAdapter.AppendColumnName(sbColumnList, column);
                 if (i < allPropertiesExceptKeyAndComputed.Count - 1)
                     sbColumnList.Append(", ");
             }
@@ -223,7 +242,8 @@ namespace Dapper.Contrib.Extensions
             for (var i = 0; i < nonIdProps.Count; i++)
             {
                 var property = nonIdProps.ElementAt(i);
-                adapter.AppendColumnNameEqualsValue(sb, property.Name);
+                var column = ColumnNamesCache(type, property.Name);
+                adapter.AppendColumnNameEqualsValue(sb, column, property.Name);
                 if (i < nonIdProps.Count - 1)
                     sb.AppendFormat(", ");
             }
@@ -231,7 +251,8 @@ namespace Dapper.Contrib.Extensions
             for (var i = 0; i < keyProperties.Count; i++)
             {
                 var property = keyProperties.ElementAt(i);
-                adapter.AppendColumnNameEqualsValue(sb, property.Name);
+                var column = ColumnNamesCache(type, property.Name);
+                adapter.AppendColumnNameEqualsValue(sb, column, property.Name);
                 if (i < keyProperties.Count - 1)
                     sb.AppendFormat(" and ");
             }
@@ -275,10 +296,13 @@ namespace Dapper.Contrib.Extensions
             var sb = new StringBuilder();
             sb.AppendFormat("DELETE FROM {0} WHERE ", name);
 
+            var adapter = GetFormatter(connection);
+
             for (var i = 0; i < keyProperties.Count; i++)
             {
                 var property = keyProperties.ElementAt(i);
-                sb.AppendFormat("{0} = @{1}", property.Name, property.Name);
+                var column = ColumnNamesCache(type, property.Name);
+                adapter.AppendColumnNameEqualsValue(sb, column, property.Name);  //fix for issue #336
                 if (i < keyProperties.Count - 1)
                     sb.AppendFormat(" AND ");
             }
